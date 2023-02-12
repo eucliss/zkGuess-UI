@@ -1,5 +1,4 @@
-# greeter-front-end
-
+# zkGuess UI
 ## Project setup
 ```
 yarn install
