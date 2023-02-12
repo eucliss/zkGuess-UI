@@ -1,81 +1,100 @@
 <template>
   <div id="app" v-if="!mainLoading">
-    <h1>Greeter says: {{ greeting }} 👋</h1>
-    <div>
-      This a simple dApp, which can choose fee token and interact with the
-      `Greeter` smart contract.
-    </div>
     <div class="main-box">
-      <div>
-        Select token:
-        <select v-model="selectedTokenAddress" v-on:change="changeToken">
-          <option
-            v-for="token in tokens"
-            v-bind:value="token.address"
-            v-bind:key="token.address"
-          >
-            {{ token.symbol }}
-          </option>
-        </select>
-      </div>
-      <div class="balance" v-if="selectedToken">
-        <p>
-          Balance: <span v-if="retreivingBalance">Loading...</span>
-          <span v-else>{{ currentBalance }} {{ selectedToken.symbol }}</span>
-        </p>
-        <p>
-          Expected fee: <span v-if="retreivingFee">Loading...</span>
-          <span v-else>{{ currentFee }} {{ selectedToken.symbol }}</span>
-          <button class="refresh-button" v-on:click="updateFee">Refresh</button>
-        </p>
-      </div>
-      <div class="greeting-input">
-        <input
-          v-model="newGreeting"
-          :disabled="!selectedToken || txStatus != 0"
-          placeholder="Write new greeting here..."
-        />
+      <div style="display: flex; flex-direction: row;">
+        <div style="padding: 20px; width: 50%;">
+          <h1> zkGuess</h1>
+          <div>
+          The guessing game where you can win big or lose it all ...
+          </div>
+          <br>
+          <div>
+            The prize pool currently is
+          </div>
+          <h1>{{ prizepool }} ETH</h1>
+        </div>
+        <div style="padding: 20px; padding-top: 80px; width: 50%;">
+          
+          <div>
+            Here's how this works - theres a secret number stored in the smart contract. 
+            It costs 0.01 ETH to guess the number, if you do it successfully, you win all the money from the contract.
+            If you fail to guess the correct number, you lose your 0.01 ETH guessing fee.
+          </div>
+        </div>
 
-        <button
-          class="change-button"
-          :disabled="!selectedToken || txStatus != 0 || retreivingFee"
-          v-on:click="changeGreeting"
-        >
-          <span v-if="selectedToken && !txStatus">Change greeting</span>
-          <span v-else-if="!selectedToken">Select token to pay fee first</span>
-          <span v-else-if="txStatus == 1">Sending tx...</span>
-          <span v-else-if="txStatus == 2"
-            >Waiting until tx is committed...</span
-          >
-          <span v-else-if="txStatus == 3">Updating the page...</span>
-          <span v-else-if="retreivingFee">Updating the fee...</span>
-        </button>
+
       </div>
+    
+      <div class="guess-div">
+
+        <div>
+            </div>
+            <div class="balance" v-if="selectedToken">
+              <p>
+                GuessToken loaded, good luck!
+              </p>
+            </div>
+            <div class="guess-input">
+              <input
+                v-model="newGuess"
+                :disabled="!selectedToken || txStatus != 0"
+                placeholder="Pick a number!"
+              />
+
+              <button
+                class="guess-button"
+                :disabled="!selectedToken || txStatus != 0 || retreivingFee"
+                v-on:click="guess"
+              >
+                <span v-if="selectedToken && !txStatus">Guess!</span>
+                <span v-else-if="txStatus == 1">Sending tx...</span>
+                <span v-else-if="txStatus == 2"
+                  >Waiting until tx is committed...</span
+                >
+                <span v-else-if="txStatus == 3">Updating the page...</span>
+              </button>
+        </div>
+
     </div>
+    </div>
+      <div v-if="result" class="result">
+      <div v-if="winner">
+        <img src="../assets/WINNER.png" alt="winner" />
+      </div>
+      <div v-else-if="!winner">
+        <img src="../assets/LOSER.png" alt="loser" />
+      </div>
+  </div>
   </div>
   <div id="app" v-else>
     <div class="start-screen">
-      <h1>Welcome to Greeter dApp!</h1>
-      <button v-on:click="connectMetamask">Connect Metamask</button>
+      <h1>Welcome to zkGuess!</h1>
+      <button v-on:click="connectMetamask">Connect Wallet</button>
     </div>
   </div>
 </template>
 
 <script>
+import { Contract, Web3Provider, Provider } from "zksync-web3";
+import { ethers } from "ethers";
+
 // eslint-disable-next-line
-const GREETER_CONTRACT_ADDRESS = ""; // TODO: Add smart contract address
+const GUESS_TOKEN_ADDRESS = "0x9097b8a7B29E81dd668dC6CC7377F8C51Bc52453";
+const ZK_GUESS_ADDRESS = "0x695248aEfebE2A5E9f1E3AEB80cA95F0FAF62BDD";
 // eslint-disable-next-line
-const GREETER_CONTRACT_ABI = []; // TODO: Complete and import the ABI
+const ZK_ABI = require("./zkGuess.json");
+const GUESS_ABI = require("./guessToken.json");
 
 const ETH_L1_ADDRESS = "0x0000000000000000000000000000000000000000";
+console.log(ETH_L1_ADDRESS)
 const allowedTokens = require("./eth.json");
 
 export default {
   name: "App",
   data() {
     return {
-      newGreeting: "",
-      greeting: "unknown",
+      newGuess: 0,
+      prizepool: 0,
       tokens: allowedTokens,
       selectedToken: null,
       selectedTokenAddress: "",
@@ -83,7 +102,10 @@ export default {
       provider: null,
       signer: null,
       contract: null,
+      token: null,
       canSubmit: true,
+      result:false,
+      winner:false,
       // 0 stands for no status, i.e no tx has been sent
       // 1 stands for tx is beeing submitted to the operator
       // 2 stands for tx awaiting commit
@@ -98,51 +120,63 @@ export default {
   },
   methods: {
     initializeProviderAndSigner() {
-      // TODO: initialize provider and signer based on `window.ethereum`
+        this.provider = new Provider('https://zksync2-testnet.zksync.dev');
+        // Note that we still need to get the Metamask signer
+        this.signer = (new Web3Provider(window.ethereum)).getSigner();
+        this.contract = new Contract(
+            ZK_GUESS_ADDRESS,
+            ZK_ABI,
+            this.signer
+        );
+        this.token = new Contract(
+            GUESS_TOKEN_ADDRESS,
+            GUESS_ABI,
+            this.signer
+        );
     },
-    async getGreeting() {
-      // TODO: return the current greeting
-      return "";
+
+    async getPrizepool() {
+      // Get the balance of the GREETER contract
+        const balance = await this.provider.getBalance(ZK_GUESS_ADDRESS);
+        const balanceInEth = ethers.utils.formatEther(balance);
+        return balanceInEth;
     },
-    async getFee() {
-      // TOOD: return formatted fee
-      return "";
-    },
+
     async getBalance() {
-      // Return formatted balance
-      return "";
+        // Getting the balance for the signer in the selected token
+        const balanceInUnits = await this.signer.getBalance(this.selectedToken.l2Address);
+        // To display the number of tokens in the human-readable format, we need to format them,
+        // e.g. if balanceInUnits returns 500000000000000000 wei of ETH, we want to display 0.5 ETH the user
+        return ethers.utils.formatUnits(balanceInUnits, this.selectedToken.decimals);
     },
-    async getOverrides() {
-      if (this.selectedToken.l1Address != ETH_L1_ADDRESS) {
-        // TODO: Return data for the paymaster
-      }
+    async guess() {
+        this.txStatus = 1;
+        try {
+            this.result = false;
+            this.winner = false;
 
-      return {};
-    },
-    async changeGreeting() {
-      this.txStatus = 1;
-      try {
-        // TODO: Submit the transaction
-        this.txStatus = 2;
+            const overrides = {
+                // value: ethers.utils.parseEther("0.01"),
+                gasLimit: 1000000
+            };
 
-        // TODO: Wait for transaction compilation
-        this.txStatus = 3;
+            console.log(this.newGuess)
+            const txHandle = await this.contract.guess(this.newGuess, overrides);
 
-        // Update greeting
-        this.greeting = await this.getGreeting();
+            // Wait until the transaction is committed
+            await txHandle.wait();
 
-        this.retreivingFee = true;
-        this.retreivingBalance = true;
-        // Update balance and fee
-        this.currentBalance = await this.getBalance();
-        this.currentFee = await this.getFee();
-      } catch (e) {
-        alert(JSON.stringify(e));
-      }
+            this.txStatus = 3;
 
-      this.txStatus = 0;
-      this.retreivingFee = false;
-      this.retreivingBalance = false;
+        } catch (e) {
+            alert(JSON.stringify(e));
+        }
+
+        this.txStatus = 0;
+
+        // Need the logic for setting winner / etc.
+        this.result = true;
+        this.winner = true;
     },
 
     updateFee() {
@@ -167,11 +201,9 @@ export default {
           this.retreivingBalance = false;
         });
     },
-    changeToken() {
-      this.retreivingFee = true;
-      this.retreivingBalance = true;
+    setToken() {
       const l1Token = this.tokens.filter(
-        (t) => t.address == this.selectedTokenAddress
+        (t) => t.name == "Ether"
       )[0];
       this.provider
         .l2TokenAddress(l1Token.address)
@@ -182,27 +214,22 @@ export default {
             decimals: l1Token.decimals,
             symbol: l1Token.symbol,
           };
-          this.updateFee();
-          this.updateBalance();
         })
         .catch((e) => console.log(e))
-        .finally(() => {
-          this.retreivingFee = false;
-          this.retreivingBalance = false;
-        });
     },
     loadMainScreen() {
       this.initializeProviderAndSigner();
 
       if (!this.provider || !this.signer) {
-        alert("Follow the tutorial to learn how to connect to Metamask!");
+        alert("Ensure you're Metamask is configured and connected to zkSync L2!");
         return;
       }
 
-      this.getGreeting().then((greeting) => {
-        this.greeting = greeting;
-        this.mainLoading = false;
+      this.getPrizepool().then((prize) => {
+        this.prizepool = prize;
       });
+      this.mainLoading = false;
+      this.setToken();
     },
     connectMetamask() {
       window.ethereum
@@ -222,7 +249,7 @@ export default {
 
 <style>
 #app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
+  font-family: Space Mono;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-align: center;
@@ -234,19 +261,45 @@ export default {
   display: inline-block;
 }
 
+.guess-div {
+  text-align: center;
+  padding-bottom: 20px;
+}
+
+.colgroups {
+  display: inline-block;
+  width: 300px;
+  margin-left: 50px;
+}
+
+.table-left {
+  margin-left: 50px;
+  text-align: left;
+  display: inline-block;
+  width: 100%;
+}
+
+.table-right {
+  margin-right: 50px;
+  margin-left: 50px;
+  text-align: left;
+  display: inline-block;
+  width: 100%;
+}
+
 .main-box {
   text-align: left;
-  width: 400px;
+  width: 80%;
 
   margin: auto;
   margin-top: 40px;
 }
 
-.greeting-input {
+.guess-input {
   margin-top: 20px;
 }
 
-.change-button {
+.guess-button {
   margin-left: 20px;
 }
 

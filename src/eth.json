@@ -4,5 +4,11 @@
       "decimals": 18,
       "name": "Ether",
       "symbol": "ETH"
+    },
+    {
+      "address": "0x9097b8a7B29E81dd668dC6CC7377F8C51Bc52453",
+      "decimals": 18,
+      "name": "GuessToken",
+      "symbol": "GT"
     }
 ]
