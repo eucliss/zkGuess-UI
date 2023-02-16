@@ -103,7 +103,7 @@
     "name": "guessToken",
     "outputs": [
       {
-        "internalType": "contract IERC20",
+        "internalType": "contract GuessToken",
         "name": "",
         "type": "address"
       }

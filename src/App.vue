@@ -79,13 +79,16 @@ import { Contract, Web3Provider, Provider } from "zksync-web3";
 import { ethers } from "ethers";
 
 // eslint-disable-next-line
-const GUESS_TOKEN_ADDRESS = "0x9097b8a7B29E81dd668dC6CC7377F8C51Bc52453";
-const ZK_GUESS_ADDRESS = "0x695248aEfebE2A5E9f1E3AEB80cA95F0FAF62BDD";
+const GUESS_TOKEN_ADDRESS = "0x9BF3529f30237c8E3c9e4C4923BB03DA72008792";
+const ZK_GUESS_ADDRESS = "0x0712A27F776e83A975d548b63ed1870026D8e481";
 // eslint-disable-next-line
 const ZK_ABI = require("./zkGuess.json");
 const GUESS_ABI = require("./guessToken.json");
 
 const ETH_L1_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+const WINNER_HASH = "0x9c2270628a9b29d30ae96b6c4c14ed646ee134febdce38a5b77f2bde9cea2e20"
+
 console.log(ETH_L1_ADDRESS)
 const allowedTokens = require("./eth.json");
 
@@ -139,6 +142,8 @@ export default {
       // Get the balance of the GREETER contract
         const balance = await this.provider.getBalance(ZK_GUESS_ADDRESS);
         const balanceInEth = ethers.utils.formatEther(balance);
+        this.signerAddress = await this.signer.getAddress()
+
         return balanceInEth;
     },
 
@@ -156,27 +161,45 @@ export default {
             this.winner = false;
 
             const overrides = {
-                // value: ethers.utils.parseEther("0.01"),
+                value: ethers.utils.parseEther("0.01"),
                 gasLimit: 1000000
             };
 
-            console.log(this.newGuess)
-            const txHandle = await this.contract.guess(this.newGuess, overrides);
+            const tx = await this.contract.guess(this.newGuess, overrides);
 
-            // Wait until the transaction is committed
-            await txHandle.wait();
+            tx.wait().then((receipt) => {
+                    
+                    console.log("Recipet true");
+                    console.log(receipt)
+
+                    // Check the filters for the Winner event emit
+                    // var res = this.contract.filters.Winner(this.signerAddress, null)
+
+                    var events = receipt.events;
+                    for (let i = 0; i < events.length; i++) {
+                      if(events[i].topics[0] == WINNER_HASH){
+                        this.winner = true;
+                      }
+                    } 
+                    this.result = true;
+                    this.txStatus = 0;
+                }, (error) => {
+                    // This is entered if the status of the receipt is failure
+                    console.log("Error", error);
+                    var errorString = "Error, failed transaction: " + JSON.stringify(error)
+                    alert(errorString);
+                    this.result = false;
+                    this.txStatus = 0;
+                });
 
             this.txStatus = 3;
+            this.getPrizepool().then((prize) => {
+              this.prizepool = prize;
+            });
 
         } catch (e) {
             alert(JSON.stringify(e));
         }
-
-        this.txStatus = 0;
-
-        // Need the logic for setting winner / etc.
-        this.result = true;
-        this.winner = true;
     },
 
     updateFee() {
